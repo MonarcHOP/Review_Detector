@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Review History - Extremist Review Detector</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: 'Roboto', sans-serif; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        .fade-in { animation: fadeIn 1s ease-out forwards; }
+        .hover-scale:hover { transform: scale(1.05); transition: transform 0.3s ease; }
+        .chart-container { width: 100%; max-width: 600px; margin: 20px auto; }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen flex flex-col">
+    <!-- Dynamic Menu Bar -->
+    <nav class="bg-black bg-opacity-80 p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <a href="{{ url_for('index') }}" class="text-white text-xl font-bold">Extremist Review Detector</a>
+            <div class="space-x-4">
+                <a href="{{ url_for('upload') }}" class="text-white hover:text-blue-400">Upload</a>
+                <a href="{{ url_for('preview') }}" class="text-white hover:text-blue-400">Preview</a>
+                <a href="{{ url_for('review') }}" class="text-white hover:text-blue-400">Review</a>
+                <a href="{{ url_for('dashboard') }}" class="text-white hover:text-blue-400">Dashboard</a>
+                <span class="text-gray-400">Welcome, {{ username }}</span>
+                <a href="{{ url_for('logout') }}" class="text-white hover:text-red-400">Logout</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex-grow container mx-auto max-w-2xl p-6">
+        <h2 class="text-3xl md:text-4xl font-extrabold mb-8 bg-gradient-to-r from-blue-400 via-purple-500 to-red-500 text-transparent bg-clip-text text-center fade-in">
+            Review History
+        </h2>
+
+        {% if reviews %}
+            <div class="chart-container fade-in" style="animation-delay: 0.3s;">
+                <canvas id="reviewChart"></canvas>
+            </div>
+        {% else %}
+            <div class="bg-black bg-opacity-60 p-6 rounded-lg shadow-lg fade-in" style="animation-delay: 0.3s;">
+                <p class="text-gray-300 text-center">No reviews have been analyzed yet.</p>
+            </div>
+        {% endif %}
+
+        <div class="text-center fade-in" style="animation-delay: 0.6s;">
+            <a href="{{ url_for('review') }}" class="inline-block bg-blue-600 hover:bg-blue-800 text-white font-bold py-2 px-4 rounded-lg shadow-lg hover-scale transition-colors duration-300">
+                Back to Review Analysis
+            </a>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const reviews = {{ reviews|tojson }};
+            if (reviews.length > 0) {
+                const ctx = document.getElementById('reviewChart').getContext('2d');
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: reviews.map((_, i) => `Review ${i + 1}`),
+                        datasets: [{
+                            label: 'Positive Sentiment Probability',
+                            data: reviews.map(r => r.probability),
+                            fill: false,
+                            borderColor: 'rgb(75, 192, 192)',
+                            tension: 0.1
+                        }]
+                    },
+                    options: {
+                        scales: {
+                            y: {
+                                beginAtZero: true,
+                                max: 100,
+                                title: {
+                                    display: true,
+                                    text: 'Probability (%)'
+                                }
+                            },
+                            x: {
+                                title: {
+                                    display: true,
+                                    text: 'Review Number'
+                                }
+                            }
+                        },
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Review History'
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    </script>
+</body>
+</html>

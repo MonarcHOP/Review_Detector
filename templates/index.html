@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Detecting Extremist Groups</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .fade-in {
+            animation: fadeIn 1s ease-out forwards;
+        }
+        .hover-scale:hover {
+            transform: scale(1.05);
+            transition: transform 0.3s ease;
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 min-h-screen flex flex-col">
+    <!-- Dynamic Menu Bar -->
+    <nav class="bg-black bg-opacity-80 p-4 shadow-lg">
+        <div class="container mx-auto flex justify-between items-center">
+            <a href="{{ url_for('index') }}" class="text-white text-xl font-bold">Extremist Review Detector</a>
+            <div class="space-x-4">
+                {% if logged_in %}
+                    <a href="{{ url_for('upload') }}" class="text-white hover:text-blue-400">Upload</a>
+                    <a href="{{ url_for('dashboard') }}" class="text-white hover:text-blue-400">Dashboard</a>
+                    <a href="{{ url_for('logout') }}" class="text-white hover:text-red-400">Logout</a>
+                {% else %}
+                    <a href="{{ url_for('login') }}" class="text-white hover:text-blue-400">Login</a>
+                    <a href="{{ url_for('register') }}" class="text-white hover:text-blue-400">Register</a>
+                {% endif %}
+            </div>
+        </div>
+    </nav>
+
+    <div class="flex-grow flex items-center justify-center">
+        <div class="container mx-auto p-6 max-w-4xl text-center">
+            <h1 class="text-4xl md:text-5xl font-extrabold mb-6 bg-gradient-to-r from-blue-400 via-purple-500 to-red-500 text-transparent bg-clip-text fade-in">
+                Detecting and Characterizing Extremist Reviewer Groups
+            </h1>
+            <p class="text-lg md:text-xl text-gray-300 mb-8 fade-in" style="animation-delay: 0.3s;">
+                Uncover hidden patterns and sentiments in product reviews with advanced NLP analysis.
+            </p>
+            <div class="fade-in" style="animation-delay: 0.6s;">
+                <a href="{{ url_for('login') }}" class="inline-block bg-blue-600 hover:bg-blue-800 text-white font-bold py-3 px-6 rounded-lg shadow-lg hover-scale transition-colors duration-300">
+                    Get Started - Login
+                </a>
+            </div>
+            <div class="mt-6 text-gray-400 text-sm fade-in" style="animation-delay: 0.9s;">
+                Powered by MonarcH | Secure Review Analysis
+            </div>
+        </div>
+    </div>
+</body>
+</html>
