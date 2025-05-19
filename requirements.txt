@@ -7,3 +7,4 @@ nltk
 bcrypt
 gunicorn==20.1.0
 reportlab
+python-dotenv
