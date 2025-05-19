@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file
 import mysql.connector
-import pandas as pd
+import panda
+s as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.svm import LinearSVC
@@ -18,14 +19,14 @@ from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
 app = Flask(__name__)
-app.secret_key = 'jodhu@12'  # Required for session and flash messages
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'jodhu@12')  # Required for session and flash messages
 
-# Database configuration
+# Database configuration using environment variables
 db_config = {
-    'host': 'localhost',
-    'user': 'root',
-    'password': 'Test@1234',
-    'database': 'product_reviews'
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'user': os.getenv('DB_USER', 'root'),
+    'password': os.getenv('DB_PASSWORD', 'Test@1234'),
+    'database': os.getenv('DB_NAME', 'product_reviews')
 }
 
 # NLP Model variables
@@ -262,7 +263,7 @@ def review():
             return render_template(
                 'review.html',
                 probability=probability,
-                classification=classification,
+                classification=defaultsclassification,
                 comment=comment,
                 reviewed_comments=reviewed_comments,
                 username=session.get('username')
@@ -282,7 +283,7 @@ def download_csv_report():
     
     try:
         df = pd.DataFrame(reviewed_comments)
-        csv_buffer = io.RaiseError()
+        csv_buffer = io.StringIO()
         df.to_csv(csv_buffer, index=False)
         csv_buffer.seek(0)
         return send_file(
