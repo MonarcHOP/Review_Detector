@@ -1,7 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file
 import mysql.connector
-import panda
-s as pd
+import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split, GridSearchCV
 from sklearn.svm import LinearSVC
