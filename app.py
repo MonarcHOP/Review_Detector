@@ -81,17 +81,20 @@ def login():
     if request.method == 'POST':
         username = request.form['username']
         password = request.form['password'].encode('utf-8')
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
-        user = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        if user and bcrypt.checkpw(password, user[3].encode('utf-8')):
-            session['logged_in'] = True
-            session['username'] = username
-            return redirect(url_for('upload'))
-        flash('Invalid credentials', 'error')
+        try:
+            conn = mysql.connector.connect(**db_config)
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
+            user = cursor.fetchone()
+            cursor.close()
+            conn.close()
+            if user and bcrypt.checkpw(password, user[3].encode('utf-8')):
+                session['logged_in'] = True
+                session['username'] = username
+                return redirect(url_for('upload'))
+            flash('Invalid credentials', 'error')
+        except mysql.connector.Error as e:
+            flash(f'Database connection error: {str(e)}', 'error')
     return render_template('login.html')
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -107,16 +110,16 @@ def register():
             flash('Passwords do not match', 'error')
             return render_template('register.html')
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
-        conn = mysql.connector.connect(**db_config)
-        cursor = conn.cursor()
         try:
+            conn = mysql.connector.connect(**db_config)
+            cursor = conn.cursor()
             cursor.execute('INSERT INTO users (username, email, password) VALUES (%s, %s, %s)', 
                           (username, email, hashed_password))
             conn.commit()
             flash('Registration successful! Please login.', 'success')
             return redirect(url_for('login'))
-        except mysql.connector.Error:
-            flash('Username or email already exists', 'error')
+        except mysql.connector.Error as e:
+            flash(f'Error: {str(e)}', 'error')
         finally:
             cursor.close()
             conn.close()
@@ -141,36 +144,44 @@ def upload():
             flash('No selected file', 'error')
             return redirect(request.url)
         if file and file.filename.endswith('.csv'):
-            df = pd.read_csv(file)
-            conn = mysql.connector.connect(**db_config)
-            cursor = conn.cursor()
-            cursor.execute('DELETE FROM reviews')
-            conn.commit()
-            for _, row in df.iterrows():
-                cursor.execute('INSERT INTO reviews (id, review_text, label) VALUES (%s, %s, %s)',
-                              (row['id'], row['review_text'], row['label']))
-            conn.commit()
-            cursor.close()
-            conn.close()
-            flash('File uploaded successfully', 'success')
-            return redirect(url_for('preview'))
+            try:
+                df = pd.read_csv(file)
+                conn = mysql.connector.connect(**db_config)
+                cursor = conn.cursor()
+                cursor.execute('DELETE FROM reviews')
+                conn.commit()
+                for _, row in df.iterrows():
+                    cursor.execute('INSERT INTO reviews (id, review_text, label) VALUES (%s, %s, %s)',
+                                  (row['id'], row['review_text'], row['label']))
+                conn.commit()
+                cursor.close()
+                conn.close()
+                flash('File uploaded successfully', 'success')
+                return redirect(url_for('preview'))
+            except mysql.connector.Error as e:
+                flash(f'Database error: {str(e)}', 'error')
+                return redirect(request.url)
     return render_template('upload.html', username=session.get('username'))
 
 @app.route('/preview')
 @login_required
 def preview():
-    conn = mysql.connector.connect(**db_config)
-    df = pd.read_sql('SELECT * FROM reviews', conn)
-    conn.close()
-    if df.empty:
-        flash('No dataset uploaded. Please upload a dataset to proceed.', 'error')
+    try:
+        conn = mysql.connector.connect(**db_config)
+        df = pd.read_sql('SELECT * FROM reviews', conn)
+        conn.close()
+        if df.empty:
+            flash('No dataset uploaded. Please upload a dataset to proceed.', 'error')
+            return redirect(url_for('upload'))
+        table_data = {
+            'name': 'Reviews Preview',
+            'columns': df.columns.tolist(),
+            'data': df.values.tolist()
+        }
+        return render_template('preview.html', tables=[table_data], username=session.get('username'))
+    except mysql.connector.Error as e:
+        flash(f'Database error: {str(e)}', 'error')
         return redirect(url_for('upload'))
-    table_data = {
-        'name': 'Reviews Preview',
-        'columns': df.columns.tolist(),
-        'data': df.values.tolist()
-    }
-    return render_template('preview.html', tables=[table_data], username=session.get('username'))
 
 @app.route('/analyze')
 @login_required
@@ -223,6 +234,9 @@ def analyze():
         accuracy = model.score(X_test, y_test)
         flash(f'Model trained successfully. Test accuracy: {accuracy:.2f}', 'success')
         return redirect(url_for('review'))
+    except mysql.connector.Error as e:
+        flash(f'Database error: {str(e)}', 'error')
+        return redirect(url_for('upload'))
     except Exception as e:
         flash(f'Analysis failed: {str(e)}', 'error')
         return redirect(url_for('upload'))
@@ -262,7 +276,7 @@ def review():
             return render_template(
                 'review.html',
                 probability=probability,
-                classification=defaultsclassification,
+                classification=classification,
                 comment=comment,
                 reviewed_comments=reviewed_comments,
                 username=session.get('username')
@@ -330,7 +344,7 @@ def download_pdf_report():
             ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('FONTSIZE', (0,tyleSheet', (0, 0), (-1, 0), 12),
             ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
             ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
@@ -354,52 +368,60 @@ def download_pdf_report():
 @app.route('/dashboard')
 @login_required
 def dashboard():
-    conn = mysql.connector.connect(**db_config)
-    df = pd.read_sql('SELECT * FROM reviews', conn)
-    conn.close()
+    try:
+        conn = mysql.connector.connect(**db_config)
+        df = pd.read_sql('SELECT * FROM reviews', conn)
+        conn.close()
 
-    total_reviews = len(reviewed_comments)
-    extremist_count = sum(1 for review in reviewed_comments if review['classification'] == 'EXTREMIST')
-    moderate_count = sum(1 for review in reviewed_comments if review['classification'] == 'MODERATE')
-    accurate_count = sum(1 for review in reviewed_comments if review['classification'] == 'ACCURATE')
+        total_reviews = len(reviewed_comments)
+        extremist_count = sum(1 for review in reviewed_comments if review['classification'] == 'EXTREMIST')
+        moderate_count = sum(1 for review in reviewed_comments if review['classification'] == 'MODERATE')
+        accurate_count = sum(1 for review in reviewed_comments if review['classification'] == 'ACCURATE')
 
-    data = {
-        'total_reviews': total_reviews,
-        'extremist_count': extremist_count,
-        'moderate_count': moderate_count,
-        'accurate_count': accurate_count,
-        'dataset_size': len(df) if not df.empty else 0
-    }
-    return render_template('dashboard.html', data=data, username=session.get('username'))
+        data = {
+            'total_reviews': total_reviews,
+            'extremist_count': extremist_count,
+            'moderate_count': moderate_count,
+            'accurate_count': accurate_count,
+            'dataset_size': len(df) if not df.empty else 0
+        }
+        return render_template('dashboard.html', data=data, username=session.get('username'))
+    except mysql.connector.Error as e:
+        flash(f'Database error: {str(e)}', 'error')
+        return redirect(url_for('upload'))
 
 @app.route('/dataset_metrics')
 @login_required
 def dataset_metrics():
-    conn = mysql.connector.connect(**db_config)
-    df = pd.read_sql('SELECT * FROM reviews', conn)
-    conn.close()
+    try:
+        conn = mysql.connector.connect(**db_config)
+        df = pd.read_sql('SELECT * FROM reviews', conn)
+        conn.close()
 
-    if df.empty:
-        return render_template('dataset_metrics.html', data={'positive_percentage': 0.0, 'neutral_percentage': 0.0, 'negative_percentage': 0.0}, username=session.get('username'))
+        if df.empty:
+            return render_template('dataset_metrics.html', data={'positive_percentage': 0.0, 'neutral_percentage': 0.0, 'negative_percentage': 0.0}, username=session.get('username'))
 
-    df['label_mapped'] = df['label'].str.lower().apply(
-        lambda x: 'Positive' if x in ['positive', 'accurate'] else 'Neutral' if x == 'neutral' else 'Negative'
-    )
-    total_reviews = len(df)
-    positive_count = len(df[df['label_mapped'] == 'Positive'])
-    neutral_count = len(df[df['label_mapped'] == 'Neutral'])
-    negative_count = len(df[df['label_mapped'] == 'Negative'])
+        df['label_mapped'] = df['label'].str.lower().apply(
+            lambda x: 'Positive' if x in ['positive', 'accurate'] else 'Neutral' if x == 'neutral' else 'Negative'
+        )
+        total_reviews = len(df)
+        positive_count = len(df[df['label_mapped'] == 'Positive'])
+        neutral_count = len(df[df['label_mapped'] == 'Neutral'])
+        negative_count = len(df[df['label_mapped'] == 'Negative'])
 
-    positive_percentage = (positive_count / total_reviews) * 100 if total_reviews > 0 else 0.0
-    neutral_percentage = (neutral_count / total_reviews) * 100 if total_reviews > 0 else 0.0
-    negative_percentage = (negative_count / total_reviews) * 100 if total_reviews > 0 else 0.0
+        positive_percentage = (positive_count / total_reviews) * 100 if total_reviews > 0 else 0.0
+        neutral_percentage = (neutral_count / total_reviews) * 100 if total_reviews > 0 else 0.0
+        negative_percentage = (negative_count / total_reviews) * 100 if total_reviews > 0 else 0.0
 
-    data = {
-        'positive_percentage': positive_percentage,
-        'neutral_percentage': neutral_percentage,
-        'negative_percentage': negative_percentage
-    }
-    return render_template('dataset_metrics.html', data=data, username=session.get('username'))
+        data = {
+            'positive_percentage': positive_percentage,
+            'neutral_percentage': neutral_percentage,
+            'negative_percentage': negative_percentage
+        }
+        return render_template('dataset_metrics.html', data=data, username=session.get('username'))
+    except mysql.connector.Error as e:
+        flash(f'Database error: {str(e)}', 'error')
+        return redirect(url_for('upload'))
 
 @app.route('/review_history')
 @login_required
