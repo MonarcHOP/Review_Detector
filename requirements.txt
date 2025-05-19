@@ -4,3 +4,5 @@ mysql-connector-python
 pandas
 scikit-learn
 nltk
+bcrypt
+gunicorn==20.1.0
