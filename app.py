@@ -262,7 +262,7 @@ def review():
             return render_template(
                 'review.html',
                 probability=probability,
-                classification=defaultsclassification,
+                classification=classification,
                 comment=comment,
                 reviewed_comments=reviewed_comments,
                 username=session.get('username')
