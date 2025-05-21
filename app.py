@@ -1,5 +1,6 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file
-import psycopg2
+from sqlalchemy import create_engine
+from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.model_selection import train_test_split, GridSearchCV
@@ -17,6 +18,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 import logging
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -26,13 +28,13 @@ app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'jodhu@12')  # Required for session and flash messages
 
 # Database configuration using environment variables
-db_config = {
-    'host': os.getenv('DATABASE_HOST', 'dpg-d0mq9qe3jp1c738j58dg-a'),
-    'user': os.getenv('DATABASE_USER', 'root'),
-    'password': os.getenv('DATABASE_PASSWORD', 'btRdOQDtI8AJxjjyf9L1Kw5fiMGxxzPD'),
-    'dbname': os.getenv('DATABASE_NAME', 'product_reviews_de1l'),
-    'port': os.getenv('DATABASE_PORT', '5432')
-}
+db_user = os.getenv('DATABASE_USER', 'root')
+db_password = os.getenv('DATABASE_PASSWORD', 'btRdOQDtI8AJxjjyf9L1Kw5fiMGxxzPD')
+db_host = os.getenv('DATABASE_HOST', 'dpg-d0mq9qe3jp1c738j58dg-a')
+db_name = os.getenv('DATABASE_NAME', 'product_reviews_de1l')
+db_port = os.getenv('DATABASE_PORT', '5432')
+db_uri = f'postgresql://{root}:{btRdOQDtI8AJxjjyf9L1Kw5fiMGxxzPD}@{dpg-d0mq9qe3jp1c738j58dg-a}:{5432}/{product_reviews_de1l}'
+engine = create_engine(db_uri)
 
 # NLP Model variables
 model = None
@@ -42,12 +44,9 @@ reviewed_comments = []  # In-memory list to store review history
 def init_nltk():
     """Download required NLTK resources."""
     try:
-        # Set NLTK data path to a writable directory in Render
         nltk_data_path = '/opt/render/nltk_data'
         os.makedirs(nltk_data_path, exist_ok=True)
         nltk.data.path.append(nltk_data_path)
-        
-        # Download resources if not already present
         for resource in ['stopwords', 'wordnet', 'omw-1.4']:
             try:
                 nltk.data.find(f'corpora/{resource}')
@@ -62,33 +61,27 @@ def init_nltk():
 def init_db():
     """Initialize database tables."""
     try:
-        conn = psycopg2.connect(**db_config)
-        cursor = conn.cursor()
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS users (
-                id SERIAL PRIMARY KEY,
-                username VARCHAR(50) UNIQUE,
-                email VARCHAR(100) UNIQUE,
-                password VARCHAR(100)
-            )
-        ''')
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS reviews (
-                id SERIAL PRIMARY KEY,
-                review_text TEXT,
-                label VARCHAR(50)
-            )
-        ''')
-        conn.commit()
+        with engine.connect() as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    id SERIAL PRIMARY KEY,
+                    username VARCHAR(50) UNIQUE,
+                    email VARCHAR(100) UNIQUE,
+                    password VARCHAR(100)
+                )
+            ''')
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS reviews (
+                    id SERIAL PRIMARY KEY,
+                    review_text TEXT,
+                    label VARCHAR(50)
+                )
+            ''')
+            conn.commit()
         logger.info("Database tables initialized successfully")
-    except psycopg2.Error as e:
+    except SQLAlchemyError as e:
         logger.error(f"Failed to initialize database: {e}")
         raise
-    finally:
-        if cursor:
-            cursor.close()
-        if conn:
-            conn.close()
 
 # Initialize database and NLTK on startup
 init_db()
@@ -121,18 +114,15 @@ def login():
         username = request.form['username']
         password = request.form['password'].encode('utf-8')
         try:
-            conn = psycopg2.connect(**db_config)
-            cursor = conn.cursor()
-            cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
-            user = cursor.fetchone()
-            cursor.close()
-            conn.close()
+            with engine.connect() as conn:
+                result = conn.execute('SELECT * FROM users WHERE username = %s', [username])
+                user = result.fetchone()
             if user and bcrypt.checkpw(password, user[3].encode('utf-8')):
                 session['logged_in'] = True
                 session['username'] = username
                 return redirect(url_for('upload'))
             flash('Invalid credentials', 'error')
-        except psycopg2.Error as e:
+        except SQLAlchemyError as e:
             logger.error(f"Database error during login: {e}")
             flash('Database error, please try again later', 'error')
     return render_template('login.html')
@@ -151,19 +141,15 @@ def register():
             return render_template('register.html')
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         try:
-            conn = psycopg2.connect(**db_config)
-            cursor = conn.cursor()
-            cursor.execute('INSERT INTO users (username, email, password) VALUES (%s, %s, %s)', 
-                          (username, email, hashed_password))
-            conn.commit()
+            with engine.connect() as conn:
+                conn.execute('INSERT INTO users (username, email, password) VALUES (%s, %s, %s)', 
+                             [username, email, hashed_password])
+                conn.commit()
             flash('Registration successful! Please login.', 'success')
             return redirect(url_for('login'))
-        except psycopg2.Error as e:
+        except SQLAlchemyError as e:
             logger.error(f"Database error during registration: {e}")
             flash('Username or email already exists', 'error')
-        finally:
-            cursor.close()
-            conn.close()
     return render_template('register.html')
 
 @app.route('/logout')
@@ -187,31 +173,24 @@ def upload():
         if file and file.filename.endswith('.csv'):
             try:
                 df = pd.read_csv(file)
-                conn = psycopg2.connect(**db_config)
-                cursor = conn.cursor()
-                cursor.execute('DELETE FROM reviews')
-                conn.commit()
-                for _, row in df.iterrows():
-                    cursor.execute('INSERT INTO reviews (id, review_text, label) VALUES (%s, %s, %s)',
-                                  (row['id'], row['review_text'], row['label']))
-                conn.commit()
+                with engine.connect() as conn:
+                    conn.execute('DELETE FROM reviews')
+                    for _, row in df.iterrows():
+                        conn.execute('INSERT INTO reviews (id, review_text, label) VALUES (%s, %s, %s)',
+                                     [row['id'], row['review_text'], row['label']])
+                    conn.commit()
                 flash('File uploaded successfully', 'success')
                 return redirect(url_for('preview'))
-            except psycopg2.Error as e:
+            except SQLAlchemyError as e:
                 logger.error(f"Database error during upload: {e}")
                 flash('Database error during upload, please try again', 'error')
-            finally:
-                cursor.close()
-                conn.close()
     return render_template('upload.html', username=session.get('username'))
 
 @app.route('/preview')
 @login_required
 def preview():
     try:
-        conn = psycopg2.connect(**db_config)
-        df = pd.read_sql('SELECT * FROM reviews', conn)
-        conn.close()
+        df = pd.read_sql('SELECT * FROM reviews', engine)
         if df.empty:
             flash('No dataset uploaded. Please upload a dataset to proceed.', 'error')
             return redirect(url_for('upload'))
@@ -221,7 +200,7 @@ def preview():
             'data': df.values.tolist()
         }
         return render_template('preview.html', tables=[table_data], username=session.get('username'))
-    except psycopg2.Error as e:
+    except SQLAlchemyError as e:
         logger.error(f"Database error during preview: {e}")
         flash('Database error, please try again later', 'error')
         return redirect(url_for('upload'))
@@ -231,21 +210,17 @@ def preview():
 def analyze():
     global model, vectorizer
     try:
-        conn = psycopg2.connect(**db_config)
-        df = pd.read_sql('SELECT * FROM reviews', conn)
-        conn.close()
-
+        start_time = time.time()
+        logger.info("Starting model training")
+        df = pd.read_sql('SELECT * FROM reviews', engine)
         if df.empty:
             flash('No reviews available for training', 'error')
             return redirect(url_for('upload'))
 
+        logger.info("Preprocessing text")
         df['processed_text'] = df['review_text'].apply(preprocess_text)
 
-        vectorizer = TfidfVectorizer(
-            min_df=1,
-            max_df=0.9,
-            ngram_range=(1, 3)
-        )
+        vectorizer = TfidfVectorizer(min_df=1, max_df=0.9, ngram_range=(1, 3))
         X = vectorizer.fit_transform(df['processed_text'])
 
         df['label_mapped'] = df['label'].str.lower().apply(
@@ -263,18 +238,21 @@ def analyze():
             flash('Error: Training split contains only one class. Try uploading a larger dataset.', 'error')
             return redirect(url_for('upload'))
 
+        # Optimized parameter grid
         param_grid = {
-            'estimator__C': [0.001, 0.01, 0.1, 1, 10],
-            'estimator__penalty': ['l1', 'l2'],
-            'estimator__loss': ['hinge', 'squared_hinge']
+            'estimator__C': [0.1, 1],
+            'estimator__penalty': ['l2'],
+            'estimator__loss': ['hinge']
         }
         base_model = LinearSVC(random_state=42, max_iter=1000, dual=False)
         calibrated_model = CalibratedClassifierCV(base_model, method='sigmoid', cv=3)
-        grid_search = GridSearchCV(calibrated_model, param_grid, cv=5, scoring='accuracy')
+        grid_search = GridSearchCV(calibrated_model, param_grid, cv=3, scoring='accuracy')
         grid_search.fit(X_train, y_train)
 
         model = grid_search.best_estimator_
         accuracy = model.score(X_test, y_test)
+        training_time = time.time() - start_time
+        logger.info(f"Model training completed in {training_time:.2f} seconds. Test accuracy: {accuracy:.2f}")
         flash(f'Model trained successfully. Test accuracy: {accuracy:.2f}', 'success')
         return redirect(url_for('review'))
     except Exception as e:
@@ -361,17 +339,12 @@ def download_pdf_report():
         return redirect(request.referrer or url_for('dashboard'))
     
     try:
-        # Create a PDF buffer
         pdf_buffer = io.BytesIO()
         doc = SimpleDocTemplate(pdf_buffer, pagesize=letter)
         elements = []
-        
-        # Define styles
         styles = getSampleStyleSheet()
         title = Paragraph("Sentiment Analysis Report", styles['Heading1'])
         elements.append(title)
-        
-        # Prepare table data
         data = [['Comment', 'Probability (%)', 'Classification']]
         for review in reviewed_comments:
             data.append([
@@ -379,8 +352,6 @@ def download_pdf_report():
                 f"{review['probability']:.2f}",
                 review['classification']
             ])
-        
-        # Create table
         table = Table(data)
         table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
@@ -393,11 +364,8 @@ def download_pdf_report():
             ('GRID', (0, 0), (-1, -1), 1, colors.black)
         ]))
         elements.append(table)
-        
-        # Build PDF
         doc.build(elements)
         pdf_buffer.seek(0)
-        
         return send_file(
             pdf_buffer,
             mimetype='application/pdf',
@@ -413,15 +381,11 @@ def download_pdf_report():
 @login_required
 def dashboard():
     try:
-        conn = psycopg2.connect(**db_config)
-        df = pd.read_sql('SELECT * FROM reviews', conn)
-        conn.close()
-
+        df = pd.read_sql('SELECT * FROM reviews', engine)
         total_reviews = len(reviewed_comments)
         extremist_count = sum(1 for review in reviewed_comments if review['classification'] == 'EXTREMIST')
         moderate_count = sum(1 for review in reviewed_comments if review['classification'] == 'MODERATE')
         accurate_count = sum(1 for review in reviewed_comments if review['classification'] == 'ACCURATE')
-
         data = {
             'total_reviews': total_reviews,
             'extremist_count': extremist_count,
@@ -430,7 +394,7 @@ def dashboard():
             'dataset_size': len(df) if not df.empty else 0
         }
         return render_template('dashboard.html', data=data, username=session.get('username'))
-    except psycopg2.Error as e:
+    except SQLAlchemyError as e:
         logger.error(f"Database error during dashboard: {e}")
         flash('Database error, please try again later', 'error')
         return redirect(url_for('upload'))
@@ -439,13 +403,9 @@ def dashboard():
 @login_required
 def dataset_metrics():
     try:
-        conn = psycopg2.connect(**db_config)
-        df = pd.read_sql('SELECT * FROM reviews', conn)
-        conn.close()
-
+        df = pd.read_sql('SELECT * FROM reviews', engine)
         if df.empty:
             return render_template('dataset_metrics.html', data={'positive_percentage': 0.0, 'neutral_percentage': 0.0, 'negative_percentage': 0.0}, username=session.get('username'))
-
         df['label_mapped'] = df['label'].str.lower().apply(
             lambda x: 'Positive' if x in ['positive', 'accurate'] else 'Neutral' if x == 'neutral' else 'Negative'
         )
@@ -453,18 +413,16 @@ def dataset_metrics():
         positive_count = len(df[df['label_mapped'] == 'Positive'])
         neutral_count = len(df[df['label_mapped'] == 'Neutral'])
         negative_count = len(df[df['label_mapped'] == 'Negative'])
-
         positive_percentage = (positive_count / total_reviews) * 100 if total_reviews > 0 else 0.0
         neutral_percentage = (neutral_count / total_reviews) * 100 if total_reviews > 0 else 0.0
         negative_percentage = (negative_count / total_reviews) * 100 if total_reviews > 0 else 0.0
-
         data = {
             'positive_percentage': positive_percentage,
             'neutral_percentage': neutral_percentage,
             'negative_percentage': negative_percentage
         }
         return render_template('dataset_metrics.html', data=data, username=session.get('username'))
-    except psycopg2.Error as e:
+    except SQLAlchemyError as e:
         logger.error(f"Database error during dataset metrics: {e}")
         flash('Database error, please try again later', 'error')
         return redirect(url_for('upload'))
@@ -479,15 +437,12 @@ def review_history():
 @login_required
 def extremist_analysis():
     global reviewed_comments
-    
     if not reviewed_comments:
         flash('No reviews available for extremist group analysis', 'error')
         return redirect(url_for('review'))
-
     total_reviews = len(reviewed_comments)
     extremist_count = sum(1 for review in reviewed_comments if review['classification'] == 'EXTREMIST')
     extremist_percentage = (extremist_count / total_reviews) * 100 if total_reviews > 0 else 0
-    
     if extremist_percentage > 70:
         likelihood = "High"
         likelihood_percentage = 85
@@ -500,7 +455,6 @@ def extremist_analysis():
     else:
         likelihood = "Very Low"
         likelihood_percentage = 5
-
     analysis_result = {
         'total_reviews': total_reviews,
         'extremist_count': extremist_count,
@@ -508,7 +462,6 @@ def extremist_analysis():
         'likelihood': likelihood,
         'likelihood_percentage': likelihood_percentage
     }
-    
     return render_template('extremist_analysis.html', analysis=analysis_result, username=session.get('username'))
 
 if __name__ == '__main__':
