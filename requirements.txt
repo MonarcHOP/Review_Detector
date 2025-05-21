@@ -8,4 +8,4 @@ scikit-learn
 nltk
 bcrypt
 reportlab
-SQLAlchemy
+SQLAlchemy==1.4.40
