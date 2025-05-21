@@ -79,7 +79,7 @@ def init_db():
                     label VARCHAR(50)
                 )
             '''))
-            conn.commit()
+            # Changes are auto-committed when the context manager exits
         logger.info("Database tables initialized successfully")
     except SQLAlchemyError as e:
         logger.error(f"Failed to initialize database: {e}")
@@ -146,7 +146,7 @@ def register():
             with engine.connect() as conn:
                 conn.execute(text('INSERT INTO users (username, email, password) VALUES (:username, :email, :password)'), 
                              {'username': username, 'email': email, 'password': hashed_password})
-                conn.commit()
+                # Auto-committed when context manager exits
             flash('Registration successful! Please login.', 'success')
             return redirect(url_for('login'))
         except SQLAlchemyError as e:
@@ -180,7 +180,7 @@ def upload():
                     for _, row in df.iterrows():
                         conn.execute(text('INSERT INTO reviews (id, review_text, label) VALUES (:id, :review_text, :label)'),
                                      {'id': row['id'], 'review_text': row['review_text'], 'label': row['label']})
-                    conn.commit()
+                    # Auto-committed when context manager exits
                 flash('File uploaded successfully', 'success')
                 return redirect(url_for('preview'))
             except SQLAlchemyError as e:
