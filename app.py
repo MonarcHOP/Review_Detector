@@ -33,7 +33,7 @@ db_password = os.getenv('DATABASE_PASSWORD', 'btRdOQDtI8AJxjjyf9L1Kw5fiMGxxzPD')
 db_host = os.getenv('DATABASE_HOST', 'dpg-d0mq9qe3jp1c738j58dg-a')
 db_name = os.getenv('DATABASE_NAME', 'product_reviews_de1l')
 db_port = os.getenv('DATABASE_PORT', '5432')
-db_uri = f'postgresql://{root}:{btRdOQDtI8AJxjjyf9L1Kw5fiMGxxzPD}@{dpg-d0mq9qe3jp1c738j58dg-a}:{5432}/{product_reviews_de1l}'
+db_uri = f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
 engine = create_engine(db_uri)
 
 # NLP Model variables
