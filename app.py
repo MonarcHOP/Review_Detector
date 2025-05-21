@@ -27,10 +27,10 @@ app.secret_key = os.getenv('FLASK_SECRET_KEY', 'jodhu@12')  # Required for sessi
 
 # Database configuration using environment variables
 db_config = {
-    'host': os.getenv('DATABASE_HOST', 'localhost'),
-    'user': os.getenv('DATABASE_USER', 'postgres'),
-    'password': os.getenv('DATABASE_PASSWORD', 'postgres'),
-    'dbname': os.getenv('DATABASE_NAME', 'product_reviews'),
+    'host': os.getenv('DATABASE_HOST', 'dpg-d0mq9qe3jp1c738j58dg-a'),
+    'user': os.getenv('DATABASE_USER', 'root'),
+    'password': os.getenv('DATABASE_PASSWORD', 'btRdOQDtI8AJxjjyf9L1Kw5fiMGxxzPD'),
+    'dbname': os.getenv('DATABASE_NAME', 'product_reviews_de1l'),
     'port': os.getenv('DATABASE_PORT', '5432')
 }
 
