@@ -39,7 +39,28 @@ model = None
 vectorizer = None
 reviewed_comments = []  # In-memory list to store review history
 
+def init_nltk():
+    """Download required NLTK resources."""
+    try:
+        # Set NLTK data path to a writable directory in Render
+        nltk_data_path = '/opt/render/nltk_data'
+        os.makedirs(nltk_data_path, exist_ok=True)
+        nltk.data.path.append(nltk_data_path)
+        
+        # Download resources if not already present
+        for resource in ['stopwords', 'wordnet', 'omw-1.4']:
+            try:
+                nltk.data.find(f'corpora/{resource}')
+                logger.info(f"NLTK resource '{resource}' already downloaded")
+            except LookupError:
+                logger.info(f"Downloading NLTK resource '{resource}'")
+                nltk.download(resource, download_dir=nltk_data_path)
+    except Exception as e:
+        logger.error(f"Failed to initialize NLTK resources: {e}")
+        raise
+
 def init_db():
+    """Initialize database tables."""
     try:
         conn = psycopg2.connect(**db_config)
         cursor = conn.cursor()
@@ -69,8 +90,9 @@ def init_db():
         if conn:
             conn.close()
 
-# Initialize database on startup
+# Initialize database and NLTK on startup
 init_db()
+init_nltk()
 
 def preprocess_text(text):
     lemmatizer = WordNetLemmatizer()
@@ -490,7 +512,4 @@ def extremist_analysis():
     return render_template('extremist_analysis.html', analysis=analysis_result, username=session.get('username'))
 
 if __name__ == '__main__':
-    nltk.download('stopwords')
-    nltk.download('wordnet')
-    nltk.download('omw-1.4')
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)), debug=True)
