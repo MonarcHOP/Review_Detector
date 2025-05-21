@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -62,21 +62,23 @@ def init_db():
     """Initialize database tables."""
     try:
         with engine.connect() as conn:
-            conn.execute('''
+            # Create users table
+            conn.execute(text('''
                 CREATE TABLE IF NOT EXISTS users (
                     id SERIAL PRIMARY KEY,
                     username VARCHAR(50) UNIQUE,
                     email VARCHAR(100) UNIQUE,
                     password VARCHAR(100)
                 )
-            ''')
-            conn.execute('''
+            '''))
+            # Create reviews table
+            conn.execute(text('''
                 CREATE TABLE IF NOT EXISTS reviews (
                     id SERIAL PRIMARY KEY,
                     review_text TEXT,
                     label VARCHAR(50)
                 )
-            ''')
+            '''))
             conn.commit()
         logger.info("Database tables initialized successfully")
     except SQLAlchemyError as e:
@@ -115,7 +117,7 @@ def login():
         password = request.form['password'].encode('utf-8')
         try:
             with engine.connect() as conn:
-                result = conn.execute('SELECT * FROM users WHERE username = %s', [username])
+                result = conn.execute(text('SELECT * FROM users WHERE username = :username'), {'username': username})
                 user = result.fetchone()
             if user and bcrypt.checkpw(password, user[3].encode('utf-8')):
                 session['logged_in'] = True
@@ -142,8 +144,8 @@ def register():
         hashed_password = bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
         try:
             with engine.connect() as conn:
-                conn.execute('INSERT INTO users (username, email, password) VALUES (%s, %s, %s)', 
-                             [username, email, hashed_password])
+                conn.execute(text('INSERT INTO users (username, email, password) VALUES (:username, :email, :password)'), 
+                             {'username': username, 'email': email, 'password': hashed_password})
                 conn.commit()
             flash('Registration successful! Please login.', 'success')
             return redirect(url_for('login'))
@@ -174,10 +176,10 @@ def upload():
             try:
                 df = pd.read_csv(file)
                 with engine.connect() as conn:
-                    conn.execute('DELETE FROM reviews')
+                    conn.execute(text('DELETE FROM reviews'))
                     for _, row in df.iterrows():
-                        conn.execute('INSERT INTO reviews (id, review_text, label) VALUES (%s, %s, %s)',
-                                     [row['id'], row['review_text'], row['label']])
+                        conn.execute(text('INSERT INTO reviews (id, review_text, label) VALUES (:id, :review_text, :label)'),
+                                     {'id': row['id'], 'review_text': row['review_text'], 'label': row['label']})
                     conn.commit()
                 flash('File uploaded successfully', 'success')
                 return redirect(url_for('preview'))
