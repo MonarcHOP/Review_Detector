@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file
+from flask import Flask, render_template, request, redirect, url_for, flash, jsonify, session, send_file, send_from_directory
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 import pandas as pd
@@ -108,6 +108,10 @@ def login_required(f):
 def index():
     return render_template('index.html', logged_in='logged_in' in session)
 
+@app.route('/favicon.ico')
+def favicon():
+    return send_from_directory(os.path.join(app.root_path, 'static'), 'favicon.ico', mimetype='image/vnd.microsoft.icon')
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if 'logged_in' in session:
@@ -193,7 +197,7 @@ def upload():
 def preview():
     try:
         with engine.connect() as conn:
-            df = pd.read_sql('SELECT * FROM reviews', conn)
+            df = pd.read_sql_query(text('SELECT * FROM reviews'), conn)
         if df.empty:
             flash('No dataset uploaded. Please upload a dataset to proceed.', 'error')
             return redirect(url_for('upload'))
@@ -216,7 +220,7 @@ def analyze():
         start_time = time.time()
         logger.info("Starting model training")
         with engine.connect() as conn:
-            df = pd.read_sql('SELECT * FROM reviews', conn)
+            df = pd.read_sql_query(text('SELECT * FROM reviews'), conn)
         if df.empty:
             flash('No reviews available for training', 'error')
             return redirect(url_for('upload'))
@@ -386,7 +390,7 @@ def download_pdf_report():
 def dashboard():
     try:
         with engine.connect() as conn:
-            df = pd.read_sql('SELECT * FROM reviews', conn)
+            df = pd.read_sql_query(text('SELECT * FROM reviews'), conn)
         total_reviews = len(reviewed_comments)
         extremist_count = sum(1 for review in reviewed_comments if review['classification'] == 'EXTREMIST')
         moderate_count = sum(1 for review in reviewed_comments if review['classification'] == 'MODERATE')
@@ -409,7 +413,7 @@ def dashboard():
 def dataset_metrics():
     try:
         with engine.connect() as conn:
-            df = pd.read_sql('SELECT * FROM reviews', conn)
+            df = pd.read_sql_query(text('SELECT * FROM reviews'), conn)
         if df.empty:
             return render_template('dataset_metrics.html', data={'positive_percentage': 0.0, 'neutral_percentage': 0.0, 'negative_percentage': 0.0}, username=session.get('username'))
         df['label_mapped'] = df['label'].str.lower().apply(
