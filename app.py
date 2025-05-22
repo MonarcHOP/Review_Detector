@@ -28,13 +28,13 @@ app = Flask(__name__)
 app.secret_key = os.getenv('FLASK_SECRET_KEY', 'jodhu@12')  # Required for session and flash messages
 
 # Database configuration using environment variables
-db_user = os.getenv('DATABASE_USER', 'root')
-db_password = os.getenv('DATABASE_PASSWORD', 'btRdOQDtI8AJxjjyf9L1Kw5fiMGxxzPD')
-db_host = os.getenv('DATABASE_HOST', 'dpg-d0mq9qe3jp1c738j58dg-a')
-db_name = os.getenv('DATABASE_NAME', 'product_reviews_de1l')
+db_user = os.getenv('DATABASE_USER', 'postgres')
+db_password = os.getenv('DATABASE_PASSWORD', 'postgres')
+db_host = os.getenv('DATABASE_HOST', 'localhost')
+db_name = os.getenv('DATABASE_NAME', 'product_reviews')
 db_port = os.getenv('DATABASE_PORT', '5432')
 db_uri = f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
-engine = create_engine(db_uri, pool_size=5, max_overflow=10)  # Added connection pooling
+engine = create_engine(db_uri)
 
 # NLP Model variables
 model = None
@@ -196,7 +196,8 @@ def upload():
 @login_required
 def preview():
     try:
-        df = pd.read_sql(text('SELECT * FROM reviews'), engine)  # Updated to use pd.read_sql with engine
+        with engine.connect() as conn:
+            df = pd.read_sql('SELECT * FROM reviews', conn)
         if df.empty:
             flash('No dataset uploaded. Please upload a dataset to proceed.', 'error')
             return redirect(url_for('upload'))
@@ -219,7 +220,7 @@ def analyze():
         start_time = time.time()
         logger.info("Starting model training")
         with engine.connect() as conn:
-            df = pd.read_sql_query(text('SELECT * FROM reviews'), conn)
+            df = pd.read_sql('SELECT * FROM reviews', conn)
         if df.empty:
             flash('No reviews available for training', 'error')
             return redirect(url_for('upload'))
@@ -388,7 +389,8 @@ def download_pdf_report():
 @login_required
 def dashboard():
     try:
-        df = pd.read_sql(text('SELECT * FROM reviews'), engine)  # Updated to use pd.read_sql with engine
+        with engine.connect() as conn:
+            df = pd.read_sql('SELECT * FROM reviews', conn)
         total_reviews = len(reviewed_comments)
         extremist_count = sum(1 for review in reviewed_comments if review['classification'] == 'EXTREMIST')
         moderate_count = sum(1 for review in reviewed_comments if review['classification'] == 'MODERATE')
@@ -410,7 +412,8 @@ def dashboard():
 @login_required
 def dataset_metrics():
     try:
-        df = pd.read_sql(text('SELECT * FROM reviews'), engine)  # Updated to use pd.read_sql with engine
+        with engine.connect() as conn:
+            df = pd.read_sql('SELECT * FROM reviews', conn)
         if df.empty:
             return render_template('dataset_metrics.html', data={'positive_percentage': 0.0, 'neutral_percentage': 0.0, 'negative_percentage': 0.0}, username=session.get('username'))
         df['label_mapped'] = df['label'].str.lower().apply(
