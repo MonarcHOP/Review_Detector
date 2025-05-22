@@ -9,7 +9,6 @@ import nltk
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
 import os
-import re
 import io
 import bcrypt
 from reportlab.lib import colors
@@ -19,15 +18,19 @@ from reportlab.lib.styles import getSampleStyleSheet
 import logging
 import time
 import retrying
+import warnings
+
+# Suppress pandas psycopg2 warning
+warnings.filterwarnings("ignore", category=UserWarning, message="pandas only supports SQLAlchemy connectable")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.secret_key = os.getenv('FLASK_SECRET_KEY', 'jodhu@12')  # Required for session and flash messages
+app.secret_key = os.getenv('FLASK_SECRET_KEY', 'jodhu@12')
 
-# Database configuration using environment variables
+# Database configuration
 db_config = {
     'host': os.getenv('DATABASE_HOST', 'dpg-d0mq9qe3jp1c738j58dg-a'),
     'user': os.getenv('DATABASE_USER', 'root'),
@@ -39,7 +42,7 @@ db_config = {
 # NLP Model variables
 model = None
 vectorizer = None
-reviewed_comments = []  # In-memory list to store review history
+reviewed_comments = []
 
 def init_nltk():
     """Initialize NLTK resources with retries."""
@@ -63,7 +66,6 @@ def init_nltk():
         for resource in resources:
             download_resource(resource)
         
-        # Verify stopwords availability
         try:
             stopwords.words('english')
             logger.info("NLTK stopwords loaded successfully")
@@ -71,7 +73,6 @@ def init_nltk():
             logger.warning("NLTK stopwords not found after download attempts")
     except Exception as e:
         logger.error(f"Failed to initialize NLTK resources: {e}")
-        # Continue without raising to allow fallback in preprocess_text
 
 def init_db():
     """Initialize database tables."""
@@ -102,7 +103,7 @@ def init_db():
         cursor.close()
         conn.close()
 
-# Initialize database and NLTK on startup
+# Initialize database and NLTK
 init_db()
 init_nltk()
 
@@ -117,7 +118,6 @@ def preprocess_text(text):
     words = [lemmatizer.lemmatize(word.lower()) for word in text.split() if word.lower() not in stop_words]
     return ' '.join(words)
 
-# Middleware to check if user is logged in
 def login_required(f):
     def wrap(*args, **kwargs):
         if 'logged_in' not in session:
@@ -210,6 +210,7 @@ def upload():
         if file and file.filename.endswith('.csv'):
             try:
                 df = pd.read_csv(file)
+                logger.info(f"Uploaded CSV: {len(df)} rows, columns: {df.columns.tolist()}")
                 conn = psycopg2.connect(**db_config)
                 cursor = conn.cursor()
                 cursor.execute('DELETE FROM reviews')
@@ -234,6 +235,7 @@ def preview():
     try:
         conn = psycopg2.connect(**db_config)
         df = pd.read_sql('SELECT * FROM reviews', conn)
+        logger.info(f"Preview: {len(df)} rows retrieved")
         if df.empty:
             flash('No dataset uploaded. Please upload a dataset to proceed.', 'error')
             return redirect(url_for('upload'))
@@ -259,49 +261,64 @@ def analyze():
         logger.info("Starting model training")
         conn = psycopg2.connect(**db_config)
         df = pd.read_sql('SELECT * FROM reviews', conn)
+        logger.info(f"Retrieved {len(df)} reviews in {time.time() - start_time:.2f} seconds")
         if df.empty:
             flash('No reviews available for training', 'error')
             return redirect(url_for('upload'))
+        if len(df) > 20:
+            logger.warning(f"Dataset size ({len(df)}) may cause timeouts. Consider using a smaller dataset.")
+            flash('Dataset is large. For faster training, use a CSV with 10-20 rows.', 'warning')
 
         logger.info("Preprocessing text")
+        preprocess_start = time.time()
         df['processed_text'] = df['review_text'].apply(preprocess_text)
+        logger.info(f"Preprocessing completed in {time.time() - preprocess_start:.2f} seconds")
 
-        vectorizer = TfidfVectorizer(min_df=1, max_df=0.9, ngram_range=(1, 3))
+        logger.info("Vectorizing text")
+        vectorize_start = time.time()
+        vectorizer = TfidfVectorizer(min_df=1, max_df=0.9, ngram_range=(1, 1))
         X = vectorizer.fit_transform(df['processed_text'])
+        logger.info(f"Vectorization completed in {time.time() - vectorize_start:.2f} seconds")
 
         df['label_mapped'] = df['label'].str.lower().apply(
             lambda x: 'Positive' if x in ['positive', 'accurate'] else 'Neutral' if x == 'neutral' else 'Negative'
         )
         y = df['label_mapped'].map({'Positive': 1, 'Neutral': 0, 'Negative': 0})
+        logger.info(f"Labels: {df['label_mapped'].value_counts().to_dict()}")
 
         if len(y.unique()) < 2:
             flash('Error: Dataset contains only one class. Please upload a CSV with diverse labels.', 'error')
             return redirect(url_for('upload'))
 
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+        logger.info(f"Train split: {X_train.shape[0]} samples, Test split: {X_test.shape[0]} samples")
 
         if len(pd.Series(y_train).unique()) < 2:
             flash('Error: Training split contains only one class. Try uploading a larger dataset.', 'error')
             return redirect(url_for('upload'))
 
-        # Corrected parameter grid
+        logger.info("Training model")
+        train_start = time.time()
         param_grid = {
-            'estimator__C': [0.1, 1],
+            'estimator__C': [1],
             'estimator__penalty': ['l2'],
             'estimator__loss': ['squared_hinge']
         }
         base_model = LinearSVC(random_state=42, max_iter=1000, dual=False)
-        calibrated_model = CalibratedClassifierCV(base_model, method='sigmoid', cv=3)
-        grid_search = GridSearchCV(calibrated_model, param_grid, cv=3, scoring='accuracy')
+        calibrated_model = CalibratedClassifierCV(base_model, method='sigmoid', cv=2)
+        grid_search = GridSearchCV(calibrated_model, param_grid, cv=2, scoring='accuracy')
         grid_search.fit(X_train, y_train)
+        logger.info(f"Model training completed in {time.time() - train_start:.2f} seconds")
 
         model = grid_search.best_estimator_
         accuracy = model.score(X_test, y_test)
-        training_time = time.time() - start_time
-        logger.info(f"Model training completed in {training_time:.2f} seconds. Test accuracy: {accuracy:.2f}")
-        logger.info(f"Best parameters: {grid_search.best_params_}")
+        logger.info(f"Total training time: {time.time() - start_time:.2f} seconds. Test accuracy: {accuracy:.2f}")
         flash(f'Model trained successfully. Test accuracy: {accuracy:.2f}', 'success')
         return redirect(url_for('review'))
+    except TimeoutError:
+        logger.error("Model training timed out")
+        flash('Training timed out. Try a smaller dataset (10-20 rows).', 'error')
+        return redirect(url_for('upload'))
     except Exception as e:
         logger.error(f"Analysis failed: {e}")
         flash(f'Analysis failed: {str(e)}', 'error')
