@@ -34,7 +34,7 @@ db_host = os.getenv('DATABASE_HOST', 'dpg-d0mq9qe3jp1c738j58dg-a')
 db_name = os.getenv('DATABASE_NAME', 'product_reviews_de1l')
 db_port = os.getenv('DATABASE_PORT', '5432')
 db_uri = f'postgresql://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}'
-engine = create_engine(db_uri)
+engine = create_engine(db_uri, pool_size=5, max_overflow=10)  # Added connection pooling
 
 # NLP Model variables
 model = None
@@ -196,8 +196,7 @@ def upload():
 @login_required
 def preview():
     try:
-        with engine.connect() as conn:
-            df = pd.read_sql_query(text('SELECT * FROM reviews'), conn)
+        df = pd.read_sql(text('SELECT * FROM reviews'), engine)  # Updated to use pd.read_sql with engine
         if df.empty:
             flash('No dataset uploaded. Please upload a dataset to proceed.', 'error')
             return redirect(url_for('upload'))
@@ -389,8 +388,7 @@ def download_pdf_report():
 @login_required
 def dashboard():
     try:
-        with engine.connect() as conn:
-            df = pd.read_sql_query(text('SELECT * FROM reviews'), conn)
+        df = pd.read_sql(text('SELECT * FROM reviews'), engine)  # Updated to use pd.read_sql with engine
         total_reviews = len(reviewed_comments)
         extremist_count = sum(1 for review in reviewed_comments if review['classification'] == 'EXTREMIST')
         moderate_count = sum(1 for review in reviewed_comments if review['classification'] == 'MODERATE')
@@ -412,8 +410,7 @@ def dashboard():
 @login_required
 def dataset_metrics():
     try:
-        with engine.connect() as conn:
-            df = pd.read_sql_query(text('SELECT * FROM reviews'), conn)
+        df = pd.read_sql(text('SELECT * FROM reviews'), engine)  # Updated to use pd.read_sql with engine
         if df.empty:
             return render_template('dataset_metrics.html', data={'positive_percentage': 0.0, 'neutral_percentage': 0.0, 'negative_percentage': 0.0}, username=session.get('username'))
         df['label_mapped'] = df['label'].str.lower().apply(
