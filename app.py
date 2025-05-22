@@ -192,7 +192,8 @@ def upload():
 @login_required
 def preview():
     try:
-        df = pd.read_sql('SELECT * FROM reviews', engine)
+        with engine.connect() as conn:
+            df = pd.read_sql('SELECT * FROM reviews', conn)
         if df.empty:
             flash('No dataset uploaded. Please upload a dataset to proceed.', 'error')
             return redirect(url_for('upload'))
@@ -214,7 +215,8 @@ def analyze():
     try:
         start_time = time.time()
         logger.info("Starting model training")
-        df = pd.read_sql('SELECT * FROM reviews', engine)
+        with engine.connect() as conn:
+            df = pd.read_sql('SELECT * FROM reviews', conn)
         if df.empty:
             flash('No reviews available for training', 'error')
             return redirect(url_for('upload'))
@@ -383,7 +385,8 @@ def download_pdf_report():
 @login_required
 def dashboard():
     try:
-        df = pd.read_sql('SELECT * FROM reviews', engine)
+        with engine.connect() as conn:
+            df = pd.read_sql('SELECT * FROM reviews', conn)
         total_reviews = len(reviewed_comments)
         extremist_count = sum(1 for review in reviewed_comments if review['classification'] == 'EXTREMIST')
         moderate_count = sum(1 for review in reviewed_comments if review['classification'] == 'MODERATE')
@@ -405,7 +408,8 @@ def dashboard():
 @login_required
 def dataset_metrics():
     try:
-        df = pd.read_sql('SELECT * FROM reviews', engine)
+        with engine.connect() as conn:
+            df = pd.read_sql('SELECT * FROM reviews', conn)
         if df.empty:
             return render_template('dataset_metrics.html', data={'positive_percentage': 0.0, 'neutral_percentage': 0.0, 'negative_percentage': 0.0}, username=session.get('username'))
         df['label_mapped'] = df['label'].str.lower().apply(
