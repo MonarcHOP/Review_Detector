@@ -284,11 +284,11 @@ def analyze():
             flash('Error: Training split contains only one class. Try uploading a larger dataset.', 'error')
             return redirect(url_for('upload'))
 
-        # Optimized parameter grid
+        # Corrected parameter grid
         param_grid = {
             'estimator__C': [0.1, 1],
             'estimator__penalty': ['l2'],
-            'estimator__loss': ['hinge']
+            'estimator__loss': ['squared_hinge']
         }
         base_model = LinearSVC(random_state=42, max_iter=1000, dual=False)
         calibrated_model = CalibratedClassifierCV(base_model, method='sigmoid', cv=3)
@@ -299,6 +299,7 @@ def analyze():
         accuracy = model.score(X_test, y_test)
         training_time = time.time() - start_time
         logger.info(f"Model training completed in {training_time:.2f} seconds. Test accuracy: {accuracy:.2f}")
+        logger.info(f"Best parameters: {grid_search.best_params_}")
         flash(f'Model trained successfully. Test accuracy: {accuracy:.2f}', 'success')
         return redirect(url_for('review'))
     except Exception as e:
